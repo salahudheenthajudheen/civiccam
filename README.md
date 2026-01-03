@@ -1,4 +1,4 @@
-# 🚗 CivicCam - AI-Powered Littering Detection System
+# CivicCam - AI-Powered Littering Detection System
 
 An intelligent surveillance system that detects littering incidents in real-time using computer vision and machine learning. Built with YOLOv8 for object detection, EasyOCR for license plate recognition, and Streamlit for the web interface.
 
@@ -7,17 +7,17 @@ An intelligent surveillance system that detects littering incidents in real-time
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-red.svg)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-## ✨ Features
+## Features
 
-- **🎯 Object Detection** - Detects waste, vehicles, license plates, and people using YOLOv8
-- **👤 Face Detection** - Identifies suspects in littering incidents
-- **🔤 OCR** - Extracts license plate text using EasyOCR
-- **📱 Telegram Alerts** - Automatic notifications when littering is detected
-- **🎥 Multiple Input Sources** - Webcam, uploaded images/videos, RTSP streams
-- **📊 Dashboard** - Analytics and incident management interface
-- **💾 Incident Logging** - SQLite database for storing evidence
+- **Object Detection** - Detects waste, vehicles, license plates, and people using YOLOv8
+- **Face Detection** - Identifies suspects in littering incidents
+- **License Plate OCR** - Extracts plate text using EasyOCR
+- **Telegram Alerts** - Automatic notifications when littering is detected
+- **Multiple Input Sources** - Webcam, uploaded images/videos, RTSP streams
+- **Dashboard** - Analytics and incident management interface
+- **Incident Logging** - SQLite database for storing evidence
 
-## 🛠️ Installation
+## Installation
 
 ### Prerequisites
 - Python 3.8 or higher
@@ -26,8 +26,8 @@ An intelligent surveillance system that detects littering incidents in real-time
 
 ### Step 1: Clone the Repository
 ```bash
-git clone https://github.com/yourusername/civiccam-model.git
-cd civiccam-model
+git clone https://github.com/salahudheenthajudheen/civiccam.git
+cd civiccam
 ```
 
 ### Step 2: Create Virtual Environment
@@ -49,15 +49,23 @@ source civiccam_env/bin/activate
 pip install -r requirements.txt
 ```
 
-### Step 4: Download/Train Model
+### Step 4: Configure Environment Variables
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env with your Telegram credentials
+```
+
+### Step 5: Download/Train Model
 Place your trained model in `models/civiccam_best.pt` or train one using:
 ```bash
 python scripts/train_model.py
 ```
 
-## 🚀 Usage
+## Usage
 
-### Start the Web Dashboard
+### Web Dashboard
 ```bash
 streamlit run app.py
 ```
@@ -78,46 +86,48 @@ python detect.py --source 0 --show --face
 python detect.py --source image.jpg --ocr --events --face --save
 ```
 
-## 📱 Telegram Setup
+## Telegram Setup
 
 1. Create a bot via [@BotFather](https://t.me/BotFather) on Telegram
 2. Get your Chat ID from [@userinfobot](https://t.me/userinfobot)
-3. Update `config.py`:
-```python
-TELEGRAM_BOT_TOKEN = "your_bot_token"
-TELEGRAM_CHAT_ID = "your_chat_id"
+3. Add credentials to your `.env` file:
+```
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
-civiccam-model/
+civiccam/
 ├── app.py                 # Streamlit web dashboard
 ├── detect.py              # CLI detection script
 ├── config.py              # Configuration settings
 ├── requirements.txt       # Python dependencies
+├── .env.example           # Environment variables template
 ├── models/
 │   └── civiccam_best.pt   # Trained YOLO model
-├── scripts/
-│   ├── detector.py        # Detection engine
-│   ├── ocr_engine.py      # License plate OCR
-│   ├── face_detector.py   # Face detection
-│   ├── event_detector.py  # Littering event logic
-│   ├── evidence_handler.py # Incident storage
-│   └── telegram_bot.py    # Telegram notifications
-└── datasets/              # Training data (not included)
+└── scripts/
+    ├── detector.py        # Detection engine
+    ├── ocr_engine.py      # License plate OCR
+    ├── face_detector.py   # Face detection
+    ├── event_detector.py  # Littering event logic
+    ├── evidence_handler.py # Incident storage
+    └── telegram_bot.py    # Telegram notifications
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 Edit `config.py` to customize:
 - `DETECTION_CONF` - Detection confidence threshold (default: 0.15)
 - `LITTERING_PROXIMITY_THRESHOLD` - Distance for event detection
-- `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` - Alert settings
 
-## 🎯 Model Classes
+Environment variables (in `.env`):
+- `TELEGRAM_BOT_TOKEN` - Your Telegram bot token
+- `TELEGRAM_CHAT_ID` - Your Telegram chat/group ID
 
-The model detects 4 classes:
+## Model Classes
+
 | Class | Description |
 |-------|-------------|
 | `license_plate` | Vehicle number plates |
@@ -125,13 +135,13 @@ The model detects 4 classes:
 | `object` | Items being thrown |
 | `public` | Public areas |
 
-## 📊 Performance
+## Performance
 
 - mAP50: 55.1%
 - Inference: ~60ms per frame (GPU)
 - Real-time capable on modern hardware
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
@@ -139,17 +149,13 @@ The model detects 4 classes:
 4. Push to the branch
 5. Open a Pull Request
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics)
 - [EasyOCR](https://github.com/JaidedAI/EasyOCR)
 - [Streamlit](https://streamlit.io/)
 - [python-telegram-bot](https://python-telegram-bot.org/)
-
----
-
-**Built as a Final Year Project** 🎓

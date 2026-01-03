@@ -42,10 +42,16 @@ LITTERING_PROXIMITY_THRESHOLD = 200  # Max pixels between waste and vehicle/pers
 LITTERING_TIME_WINDOW = 5.0          # Seconds to track for littering event
 
 # Telegram Bot Configuration
-# Get your token from @BotFather on Telegram
-# Get your chat ID by messaging @userinfobot
-TELEGRAM_BOT_TOKEN = "8508542881:AAFS5my9KlpUIny1I4EF420TlYBuwz4CA7I"
-TELEGRAM_CHAT_ID = "1495265368"
+# Load from environment variables (create .env file from .env.example)
+import os
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed, use system env vars
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 # Database
 DATABASE_PATH = INCIDENTS_DIR / "incidents.db"

@@ -38,3 +38,6 @@ tqdm>=4.64.0
 
 # Dataset Management
 roboflow>=1.0.0
+
+# Environment variables
+python-dotenv>=1.0.0
