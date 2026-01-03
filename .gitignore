@@ -1,0 +1,51 @@
+# CivicCam .gitignore
+
+# Virtual Environment
+civiccam_env/
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Datasets (too large for git)
+datasets/
+
+# Training runs and outputs
+runs/
+
+# Model weights (will be downloaded or trained)
+*.pt
+!models/civiccam_best.pt
+
+# Incidents (local data)
+incidents/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.temp
