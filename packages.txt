@@ -1,3 +1,0 @@
-# All required system dependencies are either provided by Streamlit Cloud 
-# natively or bundled inside python wheels (like opencv-python-headless).
-# We are intentionally leaving this empty so apt-get doesn't break.
