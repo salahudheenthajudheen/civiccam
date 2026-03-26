@@ -416,6 +416,16 @@ def render_live_feed():
             "vehicle": "No",
             "confidence": "0%"
         }
+        
+    # Lazy init fallbacks
+    detector = None
+    ocr = None
+    face_detector = None
+    event_detector = None
+    handler = get_evidence_handler() # Handler is fast, safe to load for 'Recent Events' UI
+
+    if 'ai_components' in st.session_state:
+        detector, ocr, face_detector, event_detector, _ = st.session_state.ai_components
 
     # --- CENTER COLUMN: Main Feed ---
     with col_main:
