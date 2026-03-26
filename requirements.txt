@@ -1,8 +1,6 @@
 # CivicCam Requirements
 # AI-Powered Littering Detection System
 
---extra-index-url https://download.pytorch.org/whl/cpu
-
 # Core ML/AI
 ultralytics>=8.0.0
 torch>=2.0.0
@@ -10,14 +8,14 @@ torchvision>=0.15.0
 
 # Computer Vision
 opencv-python-headless>=4.6.0
-pillow>=9.0.0
+pillow>=10.0.0
 
 # OCR
 easyocr>=1.7.0
 
 # Web Interface
-streamlit==1.36.0
-streamlit-webrtc==0.47.3
+streamlit>=1.36.0
+streamlit-webrtc>=0.47.0
 av>=11.0.0
 
 # Data Processing
