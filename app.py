@@ -911,13 +911,29 @@ def render_incidents():
             
             with col1:
                 # Show image if available
+                frame_url = incident.get('frame_url')
                 frame_path = incident.get('frame_path')
-                if frame_path and Path(frame_path).exists():
+                
+                if frame_url:
+                    st.image(frame_url, caption="Incident Frame", width='stretch')
+                elif frame_path and Path(frame_path).exists():
                     st.image(frame_path, caption="Incident Frame", width='stretch')
                 
+                plate_url = incident.get('plate_image_url')
                 plate_path = incident.get('plate_image_path')
-                if plate_path and Path(plate_path).exists():
+                
+                if plate_url:
+                    st.image(plate_url, caption="License Plate", width=200)
+                elif plate_path and Path(plate_path).exists():
                     st.image(plate_path, caption="License Plate", width=200)
+                    
+                waste_url = incident.get('waste_image_url')
+                waste_path = incident.get('waste_image_path')
+                
+                if waste_url:
+                    st.image(waste_url, caption="Detected Waste", width=200)
+                elif waste_path and Path(waste_path).exists():
+                    st.image(waste_path, caption="Detected Waste", width=200)
             
             with col2:
                 st.markdown(f"**License Plate:** `{incident.get('license_plate', 'N/A')}`")
