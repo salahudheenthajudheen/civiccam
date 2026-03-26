@@ -202,14 +202,49 @@ def load_event_detector():
         return None
 
 
-def check_and_send_alert(detections, image, ocr, telegram_bot, handler):
-    """Check for littering event and send Telegram alert"""
-    waste_detected = any(d['class_name'] == 'waste' for d in detections)
-    plate_detected = any(d['class_name'] == 'license_plate' for d in detections)
+def check_and_send_alert(detections, image, ocr, telegram_bot, handler, face_detector=None, event_detector=None, is_video=False):
+    """Check for DUMPING event and send Telegram alert
     
-    if waste_detected and plate_detected:
-        # Littering event detected!
+    For video/streams: Uses event_detector to track NEW waste (dumping action)
+    For images: Triggers on waste + suspect (no temporal tracking)
+    
+    Triggers alert when waste is detected PLUS either:
+    - face (suspect identification) OR
+    - license_plate (vehicle identification) OR
+    - public (person/pedestrian identification)
+    """
+    import cv2
+    
+    # Handle both 'waste' and 'Waste' class names
+    waste_detected = any(d['class_name'].lower() == 'waste' for d in detections)
+    plate_detected = any(d['class_name'] == 'license_plate' for d in detections)
+    face_detected = any(d['class_name'] == 'face' for d in detections)
+    person_detected = any(d['class_name'] == 'public' for d in detections)
+    
+    # Suspect is identified if we have face, plate, OR person
+    suspect_identified = face_detected or plate_detected or person_detected
+    
+    # For video streams: use event detector to only alert on NEW waste
+    # For images: alert on any waste + suspect combination
+    should_alert = False
+    
+    if is_video and event_detector:
+        # Check for NEW waste (dumping action) in video
+        events = event_detector.process_detections(detections)
+        if len(events) > 0:
+            should_alert = True
+            print(f"[Alert] Dumping event detected in video: {len(events)} events")
+    else:
+        # For images: alert on waste + suspect
+        if waste_detected and suspect_identified:
+            should_alert = True
+            print(f"[Alert] Littering detected in image: waste + suspect (face={face_detected}, plate={plate_detected}, person={person_detected})")
+    
+    if should_alert:
+        # Littering event with suspect identified!
         plate_det = next((d for d in detections if d['class_name'] == 'license_plate'), None)
+        waste_det = next((d for d in detections if d['class_name'] == 'waste'), None)
+        face_det = next((d for d in detections if d['class_name'] == 'face'), None)
         
         # Try to read plate with OCR
         plate_text = "UNKNOWN"
@@ -220,18 +255,57 @@ def check_and_send_alert(detections, image, ocr, telegram_bot, handler):
                 plate_text = text
                 plate_conf = conf
         
-        # Save incident if handler available
+        # Get confidence scores
+        waste_conf = waste_det['confidence'] if waste_det else 0.0
+        face_conf = face_det['confidence'] if face_det else 0.0
+        
+        # Create incident folder
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        incident_folder = Path("incidents/images") / f"incident_{timestamp}"
+        incident_folder.mkdir(parents=True, exist_ok=True)
+        
+        # Save full frame with all detections
+        frame_path = incident_folder / "scene.jpg"
+        cv2.imwrite(str(frame_path), image)
+        
+        # Save individual crops
+        crops = {}
+        
+        # Waste crop
+        if waste_det:
+            x1, y1, x2, y2 = waste_det['bbox']
+            waste_crop = image[max(0,y1):y2, max(0,x1):x2]
+            if waste_crop.size > 0:
+                waste_path = incident_folder / "waste.jpg"
+                cv2.imwrite(str(waste_path), waste_crop)
+                crops['waste'] = str(waste_path)
+        
+        # Face crop
+        if face_det:
+            x1, y1, x2, y2 = face_det['bbox']
+            # Add padding for face
+            h, w = image.shape[:2]
+            pad = 20
+            x1, y1 = max(0, x1-pad), max(0, y1-pad)
+            x2, y2 = min(w, x2+pad), min(h, y2+pad)
+            face_crop = image[y1:y2, x1:x2]
+            if face_crop.size > 0:
+                face_path = incident_folder / "suspect_face.jpg"
+                cv2.imwrite(str(face_path), face_crop)
+                crops['face'] = str(face_path)
+        
+        # License plate crop
+        if plate_det:
+            x1, y1, x2, y2 = plate_det['bbox']
+            plate_crop = image[max(0,y1):y2, max(0,x1):x2]
+            if plate_crop.size > 0:
+                plate_path = incident_folder / "license_plate.jpg"
+                cv2.imwrite(str(plate_path), plate_crop)
+                crops['plate'] = str(plate_path)
+        
+        # Save incident to database
         incident_id = None
-        frame_path = None
         if handler:
-            import tempfile
-            import cv2
-            # Save temp image for Telegram
-            temp_path = Path("incidents/images") / f"incident_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-            temp_path.parent.mkdir(parents=True, exist_ok=True)
-            cv2.imwrite(str(temp_path), image)
-            frame_path = str(temp_path)
-            
             incident_id = handler.save_incident(
                 frame=image,
                 license_plate=plate_text,
@@ -241,16 +315,20 @@ def check_and_send_alert(detections, image, ocr, telegram_bot, handler):
                 location=""
             )
         
-        # Send Telegram alert
+        # Send Telegram alert with all evidence
         if telegram_bot:
-            telegram_bot.send_alert(
+            telegram_bot.send_littering_alert(
                 license_plate=plate_text,
-                confidence=plate_conf,
-                location="Streamlit App",
-                image_path=frame_path,
+                plate_confidence=plate_conf,
+                waste_confidence=waste_conf,
+                face_confidence=face_conf,
+                scene_image=str(frame_path),
+                face_image=crops.get('face'),
+                plate_image=crops.get('plate'),
+                waste_image=crops.get('waste'),
                 incident_id=incident_id
             )
-            st.success(f"🚨 Alert sent! Plate: {plate_text}")
+            st.success(f"🚨 ALERT SENT! Suspect identified - Plate: {plate_text}")
             return True
     
     return False
@@ -353,7 +431,7 @@ def render_live_feed():
                     st.session_state.current_meta["time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     
                     # Check for specific detections
-                    waste_detected = any(d['class_name'] == 'waste' for d in detections)
+                    waste_detected = any(d['class_name'].lower() == 'waste' for d in detections)
                     plate_detected = any(d['class_name'] == 'license_plate' for d in detections)
                     
                     st.session_state.current_meta["object"] = "Waste" if waste_detected else "Unknown"
@@ -365,13 +443,87 @@ def render_live_feed():
                         faces = face_detector.detect_faces(image)
                         detections.extend(faces)
                     
-                    # Check for littering and send alert
-                    if waste_detected and plate_detected:
-                        check_and_send_alert(detections, image, ocr, telegram_bot, handler)
+                    face_detected = any(d['class_name'] == 'face' for d in detections)
+                    
+                    # Debug: Print what's detected
+                    print(f"[DEBUG] waste={waste_detected}, plate={plate_detected}, face={face_detected}")
+                    print(f"[DEBUG] All classes: {[d['class_name'] for d in detections]}")
+                    
+                    person_detected = any(d['class_name'] == 'public' for d in detections)
+                    
+                    # Check for littering and send alert (waste + face OR waste + plate OR waste + person)
+                    if waste_detected and (face_detected or plate_detected or person_detected):
+                        print("[DEBUG] Alert condition MET - calling check_and_send_alert")
+                        check_and_send_alert(detections, image, ocr, telegram_bot, handler, event_detector=event_detector)
+                    else:
+                        print("[DEBUG] Alert condition NOT met")
                     
                     # Store latest detections for the side cards
                     st.session_state.latest_detections = detections
                     st.session_state.latest_image = image
+
+        elif source_type == "🎬 Upload Video":
+            uploaded_video = st.file_uploader("Upload a video", type=['mp4', 'mov', 'avi'])
+            if uploaded_video:
+                import tempfile
+                import os
+                
+                # Save uploaded video to a temporary file
+                tfile = tempfile.NamedTemporaryFile(delete=False) 
+                tfile.write(uploaded_video.read())
+                
+                vf = cv2.VideoCapture(tfile.name)
+                
+                stframe = st.empty()
+                stop_button = st.button("Stop Processing")
+                
+                while vf.isOpened() and not stop_button:
+                    ret, frame = vf.read()
+                    if not ret:
+                        break
+                    
+                    if detector:
+                        annotated, detections = detector.detect_and_draw(frame)
+                        stframe.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), width='stretch')
+                        
+                        # Update metadata
+                        st.session_state.current_meta["time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        
+                        waste_detected = any(d['class_name'].lower() == 'waste' for d in detections)
+                        plate_detected = any(d['class_name'] == 'license_plate' for d in detections)
+                        
+                        st.session_state.current_meta["object"] = "Waste" if waste_detected else "Unknown"
+                        st.session_state.current_meta["vehicle"] = "Yes" if plate_detected else "No"
+                        st.session_state.current_meta["confidence"] = f"{max([d['confidence'] for d in detections] or [0]):.0%}"
+                        
+                        # Detect faces
+                        if face_detector:
+                            faces = face_detector.detect_faces(frame)
+                            detections.extend(faces)
+                        face_detected = any(d['class_name'] == 'face' for d in detections)
+                        
+                        person_detected = any(d['class_name'] == 'public' for d in detections)
+                        
+                        # Check for littering (waste + face OR waste + plate OR waste + person)
+                        if waste_detected and (face_detected or plate_detected or person_detected):
+                            current_time = time.time()
+                            if (current_time - st.session_state.get('last_alert_time', 0)) > 300:  # 5 min cooldown
+                                print(f"[VIDEO] Alert! waste={waste_detected}, plate={plate_detected}, face={face_detected}")
+                                check_and_send_alert(detections, frame, ocr, telegram_bot, handler)
+                                st.session_state.last_alert_time = current_time
+                        
+                        # Store for cards
+                        st.session_state.latest_detections = detections
+                        st.session_state.latest_image = frame
+                        
+                    time.sleep(0.01)  # Simulate real-time playback
+                
+                vf.release()
+                # Clean up the temporary file
+                try:
+                    os.remove(tfile.name)
+                except:
+                    pass
 
         elif source_type == "📷 Webcam":
             if 'last_alert_time' not in st.session_state:
@@ -386,12 +538,20 @@ def render_live_feed():
                         annotated, detections = detector.detect_and_draw(frame)
                         display_placeholder.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), width='stretch')
                         
-                        # Check for littering (with 30 second cooldown)
-                        waste_det = any(d['class_name'] == 'waste' for d in detections)
+                        # Detect faces
+                        if face_detector:
+                            faces = face_detector.detect_faces(frame)
+                            detections.extend(faces)
+                        
+                        # Check for littering (waste + face OR waste + plate OR waste + person)
+                        waste_det = any(d['class_name'].lower() == 'waste' for d in detections)
                         plate_det = any(d['class_name'] == 'license_plate' for d in detections)
+                        face_det = any(d['class_name'] == 'face' for d in detections)
+                        person_det = any(d['class_name'] == 'public' for d in detections)
                         current_time = time.time()
                         
-                        if waste_det and plate_det and (current_time - st.session_state.last_alert_time) > 30:
+                        if waste_det and (face_det or plate_det or person_det) and (current_time - st.session_state.last_alert_time) > 300:  # 5 min cooldown
+                            print(f"[WEBCAM] Alert! waste={waste_det}, plate={plate_det}, face={face_det}, person={person_det}")
                             check_and_send_alert(detections, frame, ocr, telegram_bot, handler)
                             st.session_state.last_alert_time = current_time
                     
@@ -419,12 +579,20 @@ def render_live_feed():
                         # Update metadata
                         st.session_state.current_meta["time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         
-                        # Check for littering (with 30 second cooldown)
-                        waste_det = any(d['class_name'] == 'waste' for d in detections)
+                        # Detect faces
+                        if face_detector:
+                            faces = face_detector.detect_faces(frame)
+                            detections.extend(faces)
+                        
+                        # Check for littering (waste + face OR waste + plate OR waste + person)
+                        waste_det = any(d['class_name'].lower() == 'waste' for d in detections)
                         plate_det = any(d['class_name'] == 'license_plate' for d in detections)
+                        face_det = any(d['class_name'] == 'face' for d in detections)
+                        person_det = any(d['class_name'] == 'public' for d in detections)
                         current_time = time.time()
                         
-                        if waste_det and plate_det and (current_time - st.session_state.get('last_alert_time', 0)) > 30:
+                        if waste_det and (face_det or plate_det or person_det) and (current_time - st.session_state.get('last_alert_time', 0)) > 300:  # 5 min cooldown
+                            print(f"[RTSP] Alert! waste={waste_det}, plate={plate_det}, face={face_det}, person={person_det}")
                             check_and_send_alert(detections, frame, ocr, telegram_bot, handler)
                             st.session_state.last_alert_time = current_time
                         

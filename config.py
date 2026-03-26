@@ -53,7 +53,21 @@ except ImportError:
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-# Database
+# Supabase
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+
+# Streamlit config fallback
+try:
+    import streamlit as st
+    if "TELEGRAM_BOT_TOKEN" in st.secrets: TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"]
+    if "TELEGRAM_CHAT_ID" in st.secrets: TELEGRAM_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
+    if "SUPABASE_URL" in st.secrets: SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    if "SUPABASE_KEY" in st.secrets: SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+except Exception:
+    pass
+
+# Database (Local Backup Config)
 DATABASE_PATH = INCIDENTS_DIR / "incidents.db"
 
 # Video/Image settings

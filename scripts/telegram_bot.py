@@ -37,12 +37,16 @@ class TelegramAlertBot:
             self._init_bot()
     
     def _init_bot(self):
-        """Initialize the bot"""
+        """Initialize the bot with increased timeout"""
         try:
             from telegram import Bot
-            self.bot = Bot(token=self.token)
+            from telegram.request import HTTPXRequest
+            
+            # Increase timeout for slow connections
+            request = HTTPXRequest(connect_timeout=30.0, read_timeout=30.0, write_timeout=30.0)
+            self.bot = Bot(token=self.token, request=request)
             self._initialized = True
-            print("[TelegramBot] Bot initialized successfully")
+            print("[TelegramBot] Bot initialized successfully (30s timeout)")
         except ImportError:
             print("[TelegramBot] python-telegram-bot not installed. Run: pip install python-telegram-bot")
         except Exception as e:
@@ -149,6 +153,149 @@ class TelegramAlertBot:
                 location=location,
                 image_path=image_path,
                 incident_id=incident_id
+            )
+        )
+    
+    async def send_littering_alert_async(self,
+                                         license_plate: str,
+                                         plate_confidence: float,
+                                         waste_confidence: float,
+                                         face_confidence: float,
+                                         scene_image: str = None,
+                                         face_image: str = None,
+                                         plate_image: str = None,
+                                         waste_image: str = None,
+                                         incident_id: int = None,
+                                         location: str = "") -> bool:
+        """
+        Send comprehensive littering alert with all evidence
+        """
+        if not self.is_configured():
+            print("[TelegramBot] Bot not configured. Alert not sent.")
+            return False
+        
+        try:
+            from telegram import InputMediaPhoto
+            timestamp = datetime.now().strftime("%d/%m/%Y • %H:%M:%S")
+            
+            # Clean, concise message
+            message = f"""🚨 *LITTERING DETECTED*
+
+🚗 *Plate:* `{license_plate}`
+👤 *Suspect:* Face captured
+🗑️ *Evidence:* Waste detected
+
+📊 *Confidence Scores:*
+• License Plate: {plate_confidence:.0%}
+• Face Detection: {face_confidence:.0%}
+• Waste Detection: {waste_confidence:.0%}
+
+🕐 *Time:* {timestamp}
+🆔 *Case:* #{incident_id or 'N/A'}
+
+⚠️ *Action Required* - Review evidence below."""
+            
+            # Collect available images
+            media_group = []
+            
+            # Scene image (main photo with caption)
+            if scene_image and Path(scene_image).exists():
+                with open(scene_image, 'rb') as f:
+                    scene_bytes = f.read()
+                media_group.append(InputMediaPhoto(
+                    media=scene_bytes,
+                    caption=message,
+                    parse_mode='Markdown'
+                ))
+            
+            # Face image
+            if face_image and Path(face_image).exists():
+                with open(face_image, 'rb') as f:
+                    face_bytes = f.read()
+                media_group.append(InputMediaPhoto(
+                    media=face_bytes,
+                    caption="👤 Suspect Face"
+                ))
+            
+            # License plate image
+            if plate_image and Path(plate_image).exists():
+                with open(plate_image, 'rb') as f:
+                    plate_bytes = f.read()
+                media_group.append(InputMediaPhoto(
+                    media=plate_bytes,
+                    caption=f"🚗 Plate: {license_plate}"
+                ))
+            
+            # Waste image
+            if waste_image and Path(waste_image).exists():
+                with open(waste_image, 'rb') as f:
+                    waste_bytes = f.read()
+                media_group.append(InputMediaPhoto(
+                    media=waste_bytes,
+                    caption="🗑️ Waste Evidence"
+                ))
+            
+            # Send media group if we have multiple images
+            if len(media_group) > 1:
+                await self.bot.send_media_group(
+                    chat_id=self.chat_id,
+                    media=media_group
+                )
+            elif len(media_group) == 1:
+                # Just send single photo
+                if scene_image and Path(scene_image).exists():
+                    with open(scene_image, 'rb') as photo:
+                        await self.bot.send_photo(
+                            chat_id=self.chat_id,
+                            photo=photo,
+                            caption=message,
+                            parse_mode='Markdown'
+                        )
+            else:
+                # No images, just send text
+                await self.bot.send_message(
+                    chat_id=self.chat_id,
+                    text=message,
+                    parse_mode='Markdown'
+                )
+            
+            print(f"[TelegramBot] Littering alert sent! Plate: {license_plate}")
+            return True
+            
+        except Exception as e:
+            print(f"[TelegramBot] Error sending littering alert: {e}")
+            return False
+    
+    def send_littering_alert(self,
+                             license_plate: str,
+                             plate_confidence: float,
+                             waste_confidence: float,
+                             face_confidence: float,
+                             scene_image: str = None,
+                             face_image: str = None,
+                             plate_image: str = None,
+                             waste_image: str = None,
+                             incident_id: int = None,
+                             location: str = "") -> bool:
+        """Send littering alert synchronously"""
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        return loop.run_until_complete(
+            self.send_littering_alert_async(
+                license_plate=license_plate,
+                plate_confidence=plate_confidence,
+                waste_confidence=waste_confidence,
+                face_confidence=face_confidence,
+                scene_image=scene_image,
+                face_image=face_image,
+                plate_image=plate_image,
+                waste_image=waste_image,
+                incident_id=incident_id,
+                location=location
             )
         )
     

@@ -13,7 +13,7 @@ import yaml
 
 # Configuration
 BASE_DIR = Path(__file__).parent.parent
-DATASET_PATH = BASE_DIR / "datasets" / "combined_v2" / "data.yaml"
+DATASET_PATH = BASE_DIR / "datasets" / "combined_v3" / "data.yaml"
 OUTPUT_DIR = BASE_DIR / "runs"
 MODELS_DIR = BASE_DIR / "models"
 
@@ -24,9 +24,9 @@ TRAINING_CONFIG = {
     "batch": 16,               # Batch size
     "imgsz": 640,              # Image size
     "patience": 15,            # Early stopping patience
-    "device": 0,               # GPU device (0) or cpu
+    "device": "cpu",           # GPU device (0) or cpu
     "project": str(BASE_DIR / "runs" / "detect"),
-    "name": "civiccam_v2",     # Project name
+    "name": "civiccam_v3",     # Project name
     "exist_ok": True,          # Overwrite existing project
     "pretrained": True,        # Use pretrained weights
     "optimizer": "auto",       # Optimizer

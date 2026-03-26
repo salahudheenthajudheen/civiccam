@@ -31,6 +31,11 @@ class LitteringEventDetector:
         self.detected_events = []
         self.last_cleanup = time.time()
         
+        # Track previous waste locations to detect NEW waste (dumping)
+        self.previous_waste_bboxes = []  # [(bbox, timestamp), ...]
+        self.waste_iou_threshold = 0.3  # If IOU > this, it's the same waste
+        self.new_waste_cooldown = 5.0  # Seconds before same location can trigger again
+        
         print(f"[EventDetector] Proximity: {proximity_threshold}px, Window: {time_window}s")
     
     def _calculate_distance(self, bbox1: List[int], bbox2: List[int]) -> float:
@@ -56,7 +61,44 @@ class LitteringEventDetector:
             if not self.tracked_objects[class_name]:
                 del self.tracked_objects[class_name]
         
+        # Also cleanup old waste tracking
+        waste_cutoff = current_time - self.new_waste_cooldown
+        self.previous_waste_bboxes = [
+            (bbox, ts) for bbox, ts in self.previous_waste_bboxes
+            if ts > waste_cutoff
+        ]
+        
         self.last_cleanup = current_time
+    
+    def _calculate_iou(self, bbox1: List[int], bbox2: List[int]) -> float:
+        """Calculate Intersection over Union between two bboxes"""
+        x1 = max(bbox1[0], bbox2[0])
+        y1 = max(bbox1[1], bbox2[1])
+        x2 = min(bbox1[2], bbox2[2])
+        y2 = min(bbox1[3], bbox2[3])
+        
+        if x2 <= x1 or y2 <= y1:
+            return 0.0
+        
+        intersection = (x2 - x1) * (y2 - y1)
+        area1 = (bbox1[2] - bbox1[0]) * (bbox1[3] - bbox1[1])
+        area2 = (bbox2[2] - bbox2[0]) * (bbox2[3] - bbox2[1])
+        union = area1 + area2 - intersection
+        
+        return intersection / union if union > 0 else 0.0
+    
+    def _is_new_waste(self, waste_bbox: List[int], current_time: float) -> bool:
+        """Check if this waste is NEW (just appeared) or was already there"""
+        for prev_bbox, prev_time in self.previous_waste_bboxes:
+            iou = self._calculate_iou(waste_bbox, prev_bbox)
+            if iou > self.waste_iou_threshold:
+                # Same waste, not new
+                return False
+        
+        # This is NEW waste - add to tracking
+        self.previous_waste_bboxes.append((waste_bbox, current_time))
+        return True
+
     
     def process_detections(self, 
                           detections: List[Dict],
@@ -76,8 +118,10 @@ class LitteringEventDetector:
         
         # Separate detections by class
         license_plates = [d for d in detections if d["class_name"] == "license_plate"]
-        waste_objects = [d for d in detections if d["class_name"] == "waste"]
+        waste_objects = [d for d in detections if d["class_name"] == "waste" or d["class_name"] == "Waste"]
         objects = [d for d in detections if d["class_name"] == "object"]
+        people = [d for d in detections if d["class_name"] == "public"]
+        faces = [d for d in detections if d["class_name"] == "face"]
         
         # Track all detections
         for det in detections:
@@ -85,11 +129,22 @@ class LitteringEventDetector:
                 (det["bbox"], current_time)
             )
         
-        # Find littering events
+        # Find littering events - only for NEW waste (dumping action)
         events = []
         
         for waste in waste_objects:
             waste_bbox = waste["bbox"]
+            
+            # Only process if this is NEW waste (just appeared = dumping)
+            is_new = self._is_new_waste(waste_bbox, current_time)
+            
+            if not is_new:
+                # This waste was already there, not a dumping event
+                continue
+            
+            print(f"[EventDetector] NEW WASTE DETECTED at {waste_bbox}")
+            
+            event_triggered = False
             
             # Check proximity to license plates (vehicles)
             for plate in license_plates:
@@ -98,22 +153,83 @@ class LitteringEventDetector:
                 
                 if distance < self.proximity_threshold:
                     event = {
-                        "type": "littering",
+                        "type": "vehicle_dumping",
                         "timestamp": current_time,
                         "waste_bbox": waste_bbox,
                         "plate_bbox": plate_bbox,
                         "distance": distance,
                         "confidence": min(waste["confidence"], plate["confidence"]),
+                        "is_new_waste": True,
+                        "suspect_type": "vehicle",
                         "detections": {
                             "waste": waste,
                             "license_plate": plate
                         }
                     }
                     events.append(event)
+                    event_triggered = True
                     
-                    print(f"[EventDetector] LITTERING DETECTED! "
-                          f"Distance: {distance:.0f}px, "
+                    print(f"[EventDetector] 🚨 VEHICLE DUMPING DETECTED! "
+                          f"New waste near plate - Distance: {distance:.0f}px, "
                           f"Confidence: {event['confidence']:.2f}")
+            
+            # Check proximity to faces (pedestrians) - only if no vehicle event
+            if not event_triggered:
+                for face in faces:
+                    face_bbox = face["bbox"]
+                    distance = self._calculate_distance(waste_bbox, face_bbox)
+                    
+                    if distance < self.proximity_threshold:
+                        event = {
+                            "type": "pedestrian_dumping",
+                            "timestamp": current_time,
+                            "waste_bbox": waste_bbox,
+                            "face_bbox": face_bbox,
+                            "distance": distance,
+                            "confidence": min(waste["confidence"], face["confidence"]),
+                            "is_new_waste": True,
+                            "suspect_type": "pedestrian_face",
+                            "detections": {
+                                "waste": waste,
+                                "face": face
+                            }
+                        }
+                        events.append(event)
+                        event_triggered = True
+                        
+                        print(f"[EventDetector] 🚨 PEDESTRIAN DUMPING DETECTED (face)! "
+                              f"New waste near face - Distance: {distance:.0f}px, "
+                              f"Confidence: {event['confidence']:.2f}")
+                        break  # One face match is enough
+            
+            # Check proximity to people (public class) - fallback if no face detected
+            if not event_triggered:
+                for person in people:
+                    person_bbox = person["bbox"]
+                    distance = self._calculate_distance(waste_bbox, person_bbox)
+                    
+                    if distance < self.proximity_threshold:
+                        event = {
+                            "type": "pedestrian_dumping",
+                            "timestamp": current_time,
+                            "waste_bbox": waste_bbox,
+                            "person_bbox": person_bbox,
+                            "distance": distance,
+                            "confidence": min(waste["confidence"], person["confidence"]),
+                            "is_new_waste": True,
+                            "suspect_type": "pedestrian",
+                            "detections": {
+                                "waste": waste,
+                                "public": person
+                            }
+                        }
+                        events.append(event)
+                        event_triggered = True
+                        
+                        print(f"[EventDetector] 🚨 PEDESTRIAN DUMPING DETECTED! "
+                              f"New waste near person - Distance: {distance:.0f}px, "
+                              f"Confidence: {event['confidence']:.2f}")
+                        break  # One person match is enough
         
         # Also check for objects being thrown (object + waste appearing together)
         for obj in objects:
@@ -233,36 +349,59 @@ class CivicCamPipeline:
     def _handle_event(self, event: Dict, frame: np.ndarray, 
                      source: str, location: str):
         """Handle a detected littering event"""
-        # Get license plate text
-        plate_det = event["detections"].get("license_plate", {})
-        plate_text = plate_det.get("plate_text", "UNKNOWN")
-        plate_conf = plate_det.get("ocr_confidence", 0)
+        suspect_type = event.get("suspect_type", "unknown")
+        
+        # Get identifier and confidence based on event type
+        if suspect_type == "vehicle":
+            plate_det = event["detections"].get("license_plate", {})
+            identifier = plate_det.get("plate_text", "UNKNOWN")
+            confidence = plate_det.get("ocr_confidence", 0)
+            suspect_crop = plate_det.get("plate_image")
+        elif suspect_type == "pedestrian_face":
+            face_det = event["detections"].get("face", {})
+            identifier = f"PEDESTRIAN_FACE_{int(time.time())}"
+            confidence = face_det.get("confidence", 0)
+            # Crop the face
+            if face_det and "bbox" in face_det:
+                x1, y1, x2, y2 = [int(c) for c in face_det["bbox"]]
+                suspect_crop = frame[y1:y2, x1:x2]
+            else:
+                suspect_crop = None
+        else:  # pedestrian (body only)
+            person_det = event["detections"].get("public", {})
+            identifier = f"PEDESTRIAN_{int(time.time())}"
+            confidence = person_det.get("confidence", 0)
+            # Crop the person
+            if person_det and "bbox" in person_det:
+                x1, y1, x2, y2 = [int(c) for c in person_det["bbox"]]
+                suspect_crop = frame[y1:y2, x1:x2]
+            else:
+                suspect_crop = None
         
         # Check cooldown
         current_time = time.time()
-        if plate_text in self.alert_cooldown:
-            if current_time - self.alert_cooldown[plate_text] < self.cooldown_seconds:
+        if identifier in self.alert_cooldown:
+            if current_time - self.alert_cooldown[identifier] < self.cooldown_seconds:
                 return  # Skip, already alerted recently
         
-        self.alert_cooldown[plate_text] = current_time
+        self.alert_cooldown[identifier] = current_time
         
-        # Get image crops
-        plate_img = plate_det.get("plate_image")
+        # Get waste crop
         waste_det = event["detections"].get("waste", {})
         waste_img = None
         if waste_det and "bbox" in waste_det:
-            x1, y1, x2, y2 = waste_det["bbox"]
+            x1, y1, x2, y2 = [int(c) for c in waste_det["bbox"]]
             waste_img = frame[y1:y2, x1:x2]
         
         # Save evidence
         incident_id = self.evidence.save_incident(
             frame=frame,
-            license_plate=plate_text,
-            plate_confidence=plate_conf,
+            license_plate=identifier,
+            plate_confidence=confidence,
             detections=[event["detections"]],
             source=source,
             location=location,
-            plate_crop=plate_img,
+            plate_crop=suspect_crop,
             waste_crop=waste_img
         )
         
@@ -270,15 +409,15 @@ class CivicCamPipeline:
         if self.telegram.is_configured():
             incident = self.evidence.get_incident(incident_id)
             self.telegram.send_alert(
-                license_plate=plate_text,
-                confidence=plate_conf,
+                license_plate=identifier,
+                confidence=confidence,
                 location=location,
                 image_path=incident.get("frame_path"),
                 incident_id=incident_id
             )
             self.evidence.mark_alert_sent(incident_id)
         
-        print(f"[Pipeline] Event handled: Plate={plate_text}, ID={incident_id}")
+        print(f"[Pipeline] Event handled: Suspect={identifier}, Type={suspect_type}, ID={incident_id}")
 
 
 if __name__ == "__main__":
