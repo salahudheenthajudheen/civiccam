@@ -328,7 +328,11 @@ def check_and_send_alert(detections, image, ocr, telegram_bot, handler, face_det
                 waste_image=crops.get('waste'),
                 incident_id=incident_id
             )
-            st.success(f"🚨 ALERT SENT! Suspect identified - Plate: {plate_text}")
+            # WebRTC runs in background thread which crashes on st.success, so handle safely
+            try:
+                st.success(f"🚨 ALERT SENT! Suspect identified - Plate: {plate_text}")
+            except Exception:
+                print(f"[Alert] Successfully sent. Plate: {plate_text}")
             return True
     
     return False
@@ -526,36 +530,65 @@ def render_live_feed():
                     pass
 
         elif source_type == "📷 Webcam":
+            from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+            import av
+            import threading
+
             if 'last_alert_time' not in st.session_state:
                 st.session_state.last_alert_time = 0
+                
+            RTC_CONFIGURATION = RTCConfiguration(
+                {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+            )
             
-            if st.button("Start Camera"):
-                cap = cv2.VideoCapture(0)
-                while cap.isOpened():
-                    ret, frame = cap.read()
-                    if not ret: break
-                    if detector:
-                        annotated, detections = detector.detect_and_draw(frame)
-                        display_placeholder.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), width='stretch')
+            # Use threading Lock for safe variable sharing
+            lock = threading.Lock()
+            class CivicCamProcessor:
+                def __init__(self):
+                    self.telegram_bot = load_telegram_bot()
+                    self.handler = get_evidence_handler()
+                    self.ocr = load_ocr()
+                    self.detector = load_detector()
+                    self.face_detector = load_face_detector()
+                    self.last_alert = time.time() - 300 # Immediately ready
+
+                def recv(self, frame):
+                    img = frame.to_ndarray(format="bgr24")
+                    
+                    if self.detector:
+                        annotated, detections = self.detector.detect_and_draw(img)
                         
-                        # Detect faces
-                        if face_detector:
-                            faces = face_detector.detect_faces(frame)
+                        if self.face_detector:
+                            faces = self.face_detector.detect_faces(img)
                             detections.extend(faces)
-                        
-                        # Check for littering (waste + face OR waste + plate OR waste + person)
+                            
                         waste_det = any(d['class_name'].lower() == 'waste' for d in detections)
                         plate_det = any(d['class_name'] == 'license_plate' for d in detections)
                         face_det = any(d['class_name'] == 'face' for d in detections)
                         person_det = any(d['class_name'] == 'public' for d in detections)
+                        
                         current_time = time.time()
                         
-                        if waste_det and (face_det or plate_det or person_det) and (current_time - st.session_state.last_alert_time) > 300:  # 5 min cooldown
-                            print(f"[WEBCAM] Alert! waste={waste_det}, plate={plate_det}, face={face_det}, person={person_det}")
-                            check_and_send_alert(detections, frame, ocr, telegram_bot, handler)
-                            st.session_state.last_alert_time = current_time
+                        with lock:
+                            if waste_det and (face_det or plate_det or person_det) and (current_time - self.last_alert) > 300:
+                                print(f"[WEBCAM] Thread Alert! waste={waste_det}, plate={plate_det}, face={face_det}, person={person_det}")
+                                check_and_send_alert(detections, img, self.ocr, self.telegram_bot, self.handler)
+                                self.last_alert = current_time
+                                
+                        return av.VideoFrame.from_ndarray(annotated, format="bgr24")
                     
-                    time.sleep(0.03)
+                    return frame
+
+            webrtc_streamer(
+                key="civiccam-webcam",
+                mode=WebRtcMode.SENDRECV,
+                rtc_configuration=RTC_CONFIGURATION,
+                media_stream_constraints={"video": True, "audio": False},
+                video_processor_factory=CivicCamProcessor,
+                async_processing=True,
+            )
+            
+            st.info("💡 Grant camera permissions in your browser to start the real-time AI detection feed!")
 
         elif source_type == "🔗 RTSP Stream":
             rtsp_url = st.text_input("Enter RTSP URL", placeholder="rtsp://admin:password@ip:port/stream")
