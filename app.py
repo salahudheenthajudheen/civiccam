@@ -4,8 +4,6 @@ Live monitoring and incident management interface
 """
 
 import streamlit as st
-import cv2
-import numpy as np
 from pathlib import Path
 import sys
 import time
@@ -365,6 +363,8 @@ def render_sidebar():
 
 def render_live_feed():
     """Render the new Design UI"""
+    import cv2
+    import numpy as np
     
     # Custom Top Bar
     st.markdown("""
@@ -383,13 +383,22 @@ def render_live_feed():
     # Main Layout: [ 3: Main Feed ] [ 1: Faces/Plates ] [ 1: Recent List ]
     col_main, col_cards, col_list = st.columns([0.6, 0.2, 0.2], gap="medium")
 
-    # Initialize components
-    detector = load_detector()
-    ocr = load_ocr()
-    face_detector = load_face_detector()
+    # --- INIT STATE ---
+    # Initialization is now lazy (triggered when a source is used)
+    def initialize_ai():
+        if 'ai_ready' not in st.session_state:
+            with st.spinner("🧠 Loading AI Models... (First time may take a few mins for weights download)"):
+                detector = load_detector()
+                ocr = load_ocr()
+                face_detector = load_face_detector()
+                event_detector = load_event_detector()
+                handler = get_evidence_handler()
+                st.session_state.ai_ready = True
+                st.session_state.ai_components = (detector, ocr, face_detector, event_detector, handler)
+        
+        return st.session_state.ai_components
+
     telegram_bot = load_telegram_bot()
-    event_detector = load_event_detector()
-    handler = get_evidence_handler()
     
     # Show Telegram status in sidebar
     if telegram_bot:
@@ -415,7 +424,7 @@ def render_live_feed():
         # Source selector (compact)
         source_type = st.selectbox(
             "Source",
-            ["📷 Webcam", "📁 Upload Image", "🎬 Upload Video", "🔗 RTSP Stream"],
+            ["📁 Upload Image", "📷 Webcam", "🎬 Upload Video", "🔗 RTSP Stream"],
             label_visibility="collapsed"
         )
 
@@ -425,6 +434,9 @@ def render_live_feed():
         if source_type == "📁 Upload Image":
             uploaded_file = st.file_uploader("Drop evidence here", type=["jpg", "png"], label_visibility="collapsed")
             if uploaded_file:
+                # Lazy load models
+                detector, ocr, face_detector, _, _ = initialize_ai()
+                
                 file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
                 image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
                 
@@ -470,6 +482,9 @@ def render_live_feed():
         elif source_type == "🎬 Upload Video":
             uploaded_video = st.file_uploader("Upload a video", type=['mp4', 'mov', 'avi'])
             if uploaded_video:
+                # Lazy load models
+                detector, ocr, face_detector, event_detector, handler = initialize_ai()
+                
                 import tempfile
                 import os
                 
@@ -531,6 +546,8 @@ def render_live_feed():
                     pass
 
         elif source_type == "📷 Webcam":
+            # Lazy load models
+            detector, ocr, face_detector, event_detector, handler = initialize_ai()
             from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
             import av
             import threading
@@ -546,11 +563,9 @@ def render_live_feed():
             lock = threading.Lock()
             class CivicCamProcessor:
                 def __init__(self):
+                    # Use components from session state (initialized via initialize_ai)
+                    self.detector, self.ocr, self.face_detector, self.event_detector, self.handler = st.session_state.ai_components
                     self.telegram_bot = load_telegram_bot()
-                    self.handler = get_evidence_handler()
-                    self.ocr = load_ocr()
-                    self.detector = load_detector()
-                    self.face_detector = load_face_detector()
                     self.last_alert = time.time() - 300 # Immediately ready
 
                 def recv(self, frame):
@@ -592,6 +607,9 @@ def render_live_feed():
             st.info("💡 Grant camera permissions in your browser to start the real-time AI detection feed!")
 
         elif source_type == "🔗 RTSP Stream":
+            # Lazy load models
+            detector, ocr, face_detector, event_detector, handler = initialize_ai()
+            
             rtsp_url = st.text_input("Enter RTSP URL", placeholder="rtsp://admin:password@ip:port/stream")
             
             if rtsp_url and st.button("🔗 Connect Stream"):
