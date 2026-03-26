@@ -23,15 +23,19 @@ CREATE TABLE IF NOT EXISTS incidents (
 ALTER TABLE incidents ENABLE ROW LEVEL SECURITY;
 
 -- 3. RLS Policies - Allow full access via anon key (simple setup)
+DROP POLICY IF EXISTS "Allow public read" ON incidents;
 CREATE POLICY "Allow public read" ON incidents
     FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "Allow public insert" ON incidents;
 CREATE POLICY "Allow public insert" ON incidents
     FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Allow public update" ON incidents;
 CREATE POLICY "Allow public update" ON incidents
     FOR UPDATE USING (true);
 
+DROP POLICY IF EXISTS "Allow public delete" ON incidents;
 CREATE POLICY "Allow public delete" ON incidents
     FOR DELETE USING (true);
 
@@ -42,16 +46,19 @@ ON CONFLICT (id) DO NOTHING;
 
 -- 5. Storage Policies
 -- Allow public read access to incident images
+DROP POLICY IF EXISTS "Public Read Access" ON storage.objects;
 CREATE POLICY "Public Read Access"
     ON storage.objects FOR SELECT
     USING (bucket_id = 'incident-images');
 
 -- Allow uploads to incident images bucket
+DROP POLICY IF EXISTS "Allow Uploads" ON storage.objects;
 CREATE POLICY "Allow Uploads"
     ON storage.objects FOR INSERT
     WITH CHECK (bucket_id = 'incident-images');
 
 -- Allow updates (overwrite)
+DROP POLICY IF EXISTS "Allow Updates" ON storage.objects;
 CREATE POLICY "Allow Updates"
     ON storage.objects FOR UPDATE
     USING (bucket_id = 'incident-images');
