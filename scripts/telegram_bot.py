@@ -3,12 +3,12 @@ CivicCam Telegram Bot
 Sends alerts for littering incidents via Telegram
 """
 
-import asyncio
+import os
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
-import io
-
+import json
+import requests
 
 class TelegramAlertBot:
     """Telegram bot for sending littering alerts"""
@@ -28,52 +28,31 @@ class TelegramAlertBot:
         
         self.token = token
         self.chat_id = chat_id
-        self.bot = None
         self._initialized = False
         
-        if not token:
-            print("[TelegramBot] Warning: No token provided. Alerts disabled.")
+        if not token or not chat_id:
+            print("[TelegramBot] Warning: No token or chat_id provided. Alerts disabled.")
         else:
-            self._init_bot()
-    
-    def _init_bot(self):
-        """Initialize the bot with increased timeout"""
-        try:
-            from telegram import Bot
-            from telegram.request import HTTPXRequest
-            
-            # Increase timeout for slow connections
-            request = HTTPXRequest(connect_timeout=30.0, read_timeout=30.0, write_timeout=30.0)
-            self.bot = Bot(token=self.token, request=request)
             self._initialized = True
-            print("[TelegramBot] Bot initialized successfully (30s timeout)")
-        except ImportError:
-            print("[TelegramBot] python-telegram-bot not installed. Run: pip install python-telegram-bot")
-        except Exception as e:
-            print(f"[TelegramBot] Error initializing bot: {e}")
+            print("[TelegramBot] Bot initialized successfully (HTTP requests mode)")
     
     def is_configured(self) -> bool:
         """Check if bot is properly configured"""
         return bool(self.token and self.chat_id and self._initialized)
     
-    async def send_alert_async(self, 
-                               license_plate: str,
-                               confidence: float,
-                               location: str = "",
-                               image_path: str = None,
-                               incident_id: int = None) -> bool:
+    def _get_url(self, endpoint: str) -> str:
+        """Get the full URL for a Telegram API endpoint"""
+        return f"https://api.telegram.org/bot{self.token}/{endpoint}"
+
+    def send_alert(self, 
+                   license_plate: str,
+                   confidence: float,
+                   location: str = "",
+                   image_path: str = None,
+                   incident_id: int = None) -> bool:
         """
-        Send alert asynchronously
-        
-        Args:
-            license_plate: Detected license plate
-            confidence: Detection confidence
-            location: Location description
-            image_path: Path to incident image
-            incident_id: Database incident ID
-            
-        Returns:
-            True if sent successfully
+        Send alert synchronously using standard requests API.
+        This is thread-safe for WebRTC video processing blocks.
         """
         if not self.is_configured():
             print("[TelegramBot] Bot not configured. Alert not sent.")
@@ -97,75 +76,47 @@ class TelegramAlertBot:
 
 ⚠️ Please review and take appropriate action.
 """
+            url = self._get_url("sendMessage")
             
             # Send with image if available
             if image_path and Path(image_path).exists():
+                url = self._get_url("sendPhoto")
                 with open(image_path, 'rb') as photo:
-                    await self.bot.send_photo(
-                        chat_id=self.chat_id,
-                        photo=photo,
-                        caption=message,
-                        parse_mode='Markdown'
-                    )
+                    data = {"chat_id": self.chat_id, "caption": message, "parse_mode": "Markdown"}
+                    files = {"photo": photo}
+                    response = requests.post(url, data=data, files=files, timeout=30)
             else:
-                await self.bot.send_message(
-                    chat_id=self.chat_id,
-                    text=message,
-                    parse_mode='Markdown'
-                )
+                data = {"chat_id": self.chat_id, "text": message, "parse_mode": "Markdown"}
+                response = requests.post(url, json=data, timeout=30)
             
+            if response.status_code != 200:
+                print(f"[TelegramBot] API Error: {response.text}")
+                return False
+                
             print(f"[TelegramBot] Alert sent for plate: {license_plate}")
             return True
             
         except Exception as e:
             print(f"[TelegramBot] Error sending alert: {e}")
             return False
-    
-    def send_alert(self, 
-                   license_plate: str,
-                   confidence: float,
-                   location: str = "",
-                   image_path: str = None,
-                   incident_id: int = None) -> bool:
-        """Send alert synchronously (thread-safe wrapper)"""
-        coro = self.send_alert_async(
-            license_plate=license_plate,
-            confidence=confidence,
-            location=location,
-            image_path=image_path,
-            incident_id=incident_id
-        )
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-            
-        if loop and loop.is_running():
-            asyncio.ensure_future(coro, loop=loop)
-            return True
-        else:
-            return asyncio.run(coro)
-    
-    async def send_littering_alert_async(self,
-                                         license_plate: str,
-                                         plate_confidence: float,
-                                         waste_confidence: float,
-                                         face_confidence: float,
-                                         scene_image: str = None,
-                                         face_image: str = None,
-                                         plate_image: str = None,
-                                         waste_image: str = None,
-                                         incident_id: int = None,
-                                         location: str = "") -> bool:
-        """
-        Send comprehensive littering alert with all evidence
-        """
+
+    def send_littering_alert(self,
+                             license_plate: str,
+                             plate_confidence: float,
+                             waste_confidence: float,
+                             face_confidence: float,
+                             scene_image: str = None,
+                             face_image: str = None,
+                             plate_image: str = None,
+                             waste_image: str = None,
+                             incident_id: int = None,
+                             location: str = "") -> bool:
+        """Send comprehensive littering alert with all evidence synchronously."""
         if not self.is_configured():
             print("[TelegramBot] Bot not configured. Alert not sent.")
             return False
         
         try:
-            from telegram import InputMediaPhoto
             timestamp = datetime.now().strftime("%d/%m/%Y • %H:%M:%S")
             
             # Clean, concise message
@@ -185,113 +136,73 @@ class TelegramAlertBot:
 
 ⚠️ *Action Required* - Review evidence below."""
             
-            # Collect available images
+            # Form media group
             media_group = []
+            files = {}
+            index = 0
+            
+            def add_media(image_path, caption):
+                nonlocal index
+                if image_path and Path(image_path).exists():
+                    file_key = f"photo_{index}"
+                    files[file_key] = open(image_path, 'rb')
+                    
+                    media_item = {
+                        "type": "photo", 
+                        "media": f"attach://{file_key}"
+                    }
+                    if caption:
+                        media_item["caption"] = caption
+                        if "parse_mode" in caption:
+                            media_item["parse_mode"] = "Markdown" # Default applies, but we just set it
+                    
+                    # For Markdown specific parsing
+                    if "🚨" in caption:
+                        media_item["parse_mode"] = "Markdown"
+                        
+                    media_group.append(media_item)
+                    index += 1
             
             # Scene image (main photo with caption)
-            if scene_image and Path(scene_image).exists():
-                with open(scene_image, 'rb') as f:
-                    scene_bytes = f.read()
-                media_group.append(InputMediaPhoto(
-                    media=scene_bytes,
-                    caption=message,
-                    parse_mode='Markdown'
-                ))
+            add_media(scene_image, message)
             
-            # Face image
-            if face_image and Path(face_image).exists():
-                with open(face_image, 'rb') as f:
-                    face_bytes = f.read()
-                media_group.append(InputMediaPhoto(
-                    media=face_bytes,
-                    caption="👤 Suspect Face"
-                ))
+            # Face, plate, waste images
+            add_media(face_image, "👤 Suspect Face")
+            add_media(plate_image, f"🚗 Plate: {license_plate}")
+            add_media(waste_image, "🗑️ Waste Evidence")
             
-            # License plate image
-            if plate_image and Path(plate_image).exists():
-                with open(plate_image, 'rb') as f:
-                    plate_bytes = f.read()
-                media_group.append(InputMediaPhoto(
-                    media=plate_bytes,
-                    caption=f"🚗 Plate: {license_plate}"
-                ))
-            
-            # Waste image
-            if waste_image and Path(waste_image).exists():
-                with open(waste_image, 'rb') as f:
-                    waste_bytes = f.read()
-                media_group.append(InputMediaPhoto(
-                    media=waste_bytes,
-                    caption="🗑️ Waste Evidence"
-                ))
-            
-            # Send media group if we have multiple images
             if len(media_group) > 1:
-                await self.bot.send_media_group(
-                    chat_id=self.chat_id,
-                    media=media_group
-                )
+                url = self._get_url("sendMediaGroup")
+                data = {"chat_id": self.chat_id, "media": json.dumps(media_group)}
+                response = requests.post(url, data=data, files=files, timeout=30)
             elif len(media_group) == 1:
-                # Just send single photo
-                if scene_image and Path(scene_image).exists():
-                    with open(scene_image, 'rb') as photo:
-                        await self.bot.send_photo(
-                            chat_id=self.chat_id,
-                            photo=photo,
-                            caption=message,
-                            parse_mode='Markdown'
-                        )
+                url = self._get_url("sendPhoto")
+                # Need to use the single object
+                file_key = list(files.keys())[0]
+                data = {"chat_id": self.chat_id, "caption": message, "parse_mode": "Markdown"}
+                single_file = {"photo": files[file_key]}
+                response = requests.post(url, data=data, files=single_file, timeout=30)
             else:
-                # No images, just send text
-                await self.bot.send_message(
-                    chat_id=self.chat_id,
-                    text=message,
-                    parse_mode='Markdown'
-                )
+                url = self._get_url("sendMessage")
+                data = {"chat_id": self.chat_id, "text": message, "parse_mode": "Markdown"}
+                response = requests.post(url, json=data, timeout=30)
             
+            # Ensure files are closed
+            for f in files.values():
+                f.close()
+                
+            if response.status_code != 200:
+                print(f"[TelegramBot] API Error sending littering alert: {response.text}")
+                return False
+                
             print(f"[TelegramBot] Littering alert sent! Plate: {license_plate}")
             return True
             
         except Exception as e:
             print(f"[TelegramBot] Error sending littering alert: {e}")
             return False
-    
-    def send_littering_alert(self,
-                             license_plate: str,
-                             plate_confidence: float,
-                             waste_confidence: float,
-                             face_confidence: float,
-                             scene_image: str = None,
-                             face_image: str = None,
-                             plate_image: str = None,
-                             waste_image: str = None,
-                             incident_id: int = None,
-                             location: str = "") -> bool:
-        """Send littering alert synchronously (thread-safe wrapper)"""
-        coro = self.send_littering_alert_async(
-            license_plate=license_plate,
-            plate_confidence=plate_confidence,
-            waste_confidence=waste_confidence,
-            face_confidence=face_confidence,
-            scene_image=scene_image,
-            face_image=face_image,
-            plate_image=plate_image,
-            waste_image=waste_image,
-            incident_id=incident_id,
-            location=location
-        )
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-            
-        if loop and loop.is_running():
-            asyncio.ensure_future(coro, loop=loop)
-            return True
-        else:
-            return asyncio.run(coro)
-    
-    async def send_test_message_async(self) -> bool:
+
+    def send_test_message(self) -> bool:
         """Send a test message to verify configuration"""
         if not self.is_configured():
             print("[TelegramBot] Bot not configured")
@@ -306,32 +217,20 @@ You will receive littering alerts here.
 
 🤖 Bot Status: Active
 📡 Connection: OK
-"""
-            await self.bot.send_message(
-                chat_id=self.chat_id,
-                text=message,
-                parse_mode='Markdown'
-            )
-            print("[TelegramBot] Test message sent successfully!")
-            return True
-        except Exception as e:
-            print(f"[TelegramBot] Test failed: {e}")
-            return False
-    
-    def send_test_message(self) -> bool:
-        """Send test message synchronously"""
-        coro = self.send_test_message_async()
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
+"""         
+            url = self._get_url("sendMessage")
+            data = {"chat_id": self.chat_id, "text": message, "parse_mode": "Markdown"}
+            response = requests.post(url, json=data, timeout=30)
             
-        if loop and loop.is_running():
-            asyncio.ensure_future(coro, loop=loop)
-            return True
-        else:
-            return asyncio.run(coro)
-
+            if response.status_code == 200:
+                print("[TelegramBot] Test message sent successfully!")
+                return True
+            else:
+                print(f"[TelegramBot] Test failed API error: {response.text}")
+                return False
+        except Exception as e:
+            print(f"[TelegramBot] Test failed exception: {e}")
+            return False
 
 def setup_telegram_bot():
     """Interactive setup for Telegram bot"""
