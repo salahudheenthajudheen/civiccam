@@ -269,6 +269,9 @@ def check_and_send_alert(detections, image, ocr, telegram_bot, handler, face_det
         
         # Save individual crops
         crops = {}
+        waste_crop = None
+        face_crop = None
+        plate_crop = None
         
         # Waste crop
         if waste_det:
@@ -311,7 +314,9 @@ def check_and_send_alert(detections, image, ocr, telegram_bot, handler, face_det
                 plate_confidence=plate_conf,
                 detections=[{"class_name": d["class_name"], "confidence": d["confidence"]} for d in detections],
                 source="streamlit_app",
-                location=""
+                location="",
+                plate_crop=plate_crop,
+                waste_crop=waste_crop
             )
         
         # Send Telegram alert with all evidence
