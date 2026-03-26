@@ -127,34 +127,24 @@ class TelegramAlertBot:
                    location: str = "",
                    image_path: str = None,
                    incident_id: int = None) -> bool:
-        """
-        Send alert synchronously (wrapper for async method)
-        
-        Args:
-            license_plate: Detected license plate
-            confidence: Detection confidence
-            location: Location description
-            image_path: Path to incident image
-            incident_id: Database incident ID
-            
-        Returns:
-            True if sent successfully
-        """
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        return loop.run_until_complete(
-            self.send_alert_async(
-                license_plate=license_plate,
-                confidence=confidence,
-                location=location,
-                image_path=image_path,
-                incident_id=incident_id
-            )
+        """Send alert synchronously (thread-safe wrapper)"""
+        coro = self.send_alert_async(
+            license_plate=license_plate,
+            confidence=confidence,
+            location=location,
+            image_path=image_path,
+            incident_id=incident_id
         )
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+            
+        if loop and loop.is_running():
+            asyncio.ensure_future(coro, loop=loop)
+            return True
+        else:
+            return asyncio.run(coro)
     
     async def send_littering_alert_async(self,
                                          license_plate: str,
@@ -277,27 +267,29 @@ class TelegramAlertBot:
                              waste_image: str = None,
                              incident_id: int = None,
                              location: str = "") -> bool:
-        """Send littering alert synchronously"""
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        return loop.run_until_complete(
-            self.send_littering_alert_async(
-                license_plate=license_plate,
-                plate_confidence=plate_confidence,
-                waste_confidence=waste_confidence,
-                face_confidence=face_confidence,
-                scene_image=scene_image,
-                face_image=face_image,
-                plate_image=plate_image,
-                waste_image=waste_image,
-                incident_id=incident_id,
-                location=location
-            )
+        """Send littering alert synchronously (thread-safe wrapper)"""
+        coro = self.send_littering_alert_async(
+            license_plate=license_plate,
+            plate_confidence=plate_confidence,
+            waste_confidence=waste_confidence,
+            face_confidence=face_confidence,
+            scene_image=scene_image,
+            face_image=face_image,
+            plate_image=plate_image,
+            waste_image=waste_image,
+            incident_id=incident_id,
+            location=location
         )
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+            
+        if loop and loop.is_running():
+            asyncio.ensure_future(coro, loop=loop)
+            return True
+        else:
+            return asyncio.run(coro)
     
     async def send_test_message_async(self) -> bool:
         """Send a test message to verify configuration"""
@@ -328,13 +320,17 @@ You will receive littering alerts here.
     
     def send_test_message(self) -> bool:
         """Send test message synchronously"""
+        coro = self.send_test_message_async()
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
         except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        return loop.run_until_complete(self.send_test_message_async())
+            loop = None
+            
+        if loop and loop.is_running():
+            asyncio.ensure_future(coro, loop=loop)
+            return True
+        else:
+            return asyncio.run(coro)
 
 
 def setup_telegram_bot():
