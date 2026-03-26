@@ -22,9 +22,20 @@ class TelegramAlertBot:
             chat_id: Target chat/group ID
         """
         if token is None:
-            from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-            token = TELEGRAM_BOT_TOKEN
-            chat_id = TELEGRAM_CHAT_ID
+            try:
+                # Add parent dir to path to ensure config can be imported
+                import sys
+                parent_dir = str(Path(__file__).parent.parent)
+                if parent_dir not in sys.path:
+                    sys.path.insert(0, parent_dir)
+                
+                from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+                token = TELEGRAM_BOT_TOKEN
+                chat_id = TELEGRAM_CHAT_ID
+            except ImportError:
+                # Fallback to env vars if config.py import fails
+                token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+                chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
         
         self.token = token
         self.chat_id = chat_id
@@ -61,17 +72,17 @@ class TelegramAlertBot:
         try:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            # Format message
+            # Format message using HTML (more robust than Markdown)
             message = f"""
-🚨 **LITTERING ALERT** 🚨
+🚨 <b>LITTERING ALERT</b> 🚨
 
-📋 **Incident Details:**
+📋 <b>Incident Details:</b>
 ━━━━━━━━━━━━━━━━━━━━
-🚗 **License Plate:** `{license_plate}`
-📊 **Confidence:** {confidence:.1%}
-📍 **Location:** {location or 'Not specified'}
-🕐 **Time:** {timestamp}
-🆔 **Incident ID:** #{incident_id or 'N/A'}
+🚗 <b>License Plate:</b> <code>{license_plate}</code>
+📊 <b>Confidence:</b> {confidence:.1%}
+📍 <b>Location:</b> {location or 'Not specified'}
+🕐 <b>Time:</b> {timestamp}
+🆔 <b>Incident ID:</b> #{incident_id or 'N/A'}
 ━━━━━━━━━━━━━━━━━━━━
 
 ⚠️ Please review and take appropriate action.
@@ -82,11 +93,11 @@ class TelegramAlertBot:
             if image_path and Path(image_path).exists():
                 url = self._get_url("sendPhoto")
                 with open(image_path, 'rb') as photo:
-                    data = {"chat_id": self.chat_id, "caption": message, "parse_mode": "Markdown"}
+                    data = {"chat_id": self.chat_id, "caption": message, "parse_mode": "HTML"}
                     files = {"photo": photo}
                     response = requests.post(url, data=data, files=files, timeout=30)
             else:
-                data = {"chat_id": self.chat_id, "text": message, "parse_mode": "Markdown"}
+                data = {"chat_id": self.chat_id, "text": message, "parse_mode": "HTML"}
                 response = requests.post(url, json=data, timeout=30)
             
             if response.status_code != 200:
@@ -119,22 +130,22 @@ class TelegramAlertBot:
         try:
             timestamp = datetime.now().strftime("%d/%m/%Y • %H:%M:%S")
             
-            # Clean, concise message
-            message = f"""🚨 *LITTERING DETECTED*
+            # Clean, concise message using HTML
+            message = f"""🚨 <b>LITTERING DETECTED</b>
 
-🚗 *Plate:* `{license_plate}`
-👤 *Suspect:* Face captured
-🗑️ *Evidence:* Waste detected
+🚗 <b>Plate:</b> <code>{license_plate}</code>
+👤 <b>Suspect:</b> Face captured
+🗑️ <b>Evidence:</b> Waste detected
 
-📊 *Confidence Scores:*
+📊 <b>Confidence Scores:</b>
 • License Plate: {plate_confidence:.0%}
 • Face Detection: {face_confidence:.0%}
 • Waste Detection: {waste_confidence:.0%}
 
-🕐 *Time:* {timestamp}
-🆔 *Case:* #{incident_id or 'N/A'}
+🕐 <b>Time:</b> {timestamp}
+🆔 <b>Case:</b> #{incident_id or 'N/A'}
 
-⚠️ *Action Required* - Review evidence below."""
+⚠️ <b>Action Required</b> - Review evidence below."""
             
             # Form media group
             media_group = []
@@ -149,16 +160,11 @@ class TelegramAlertBot:
                     
                     media_item = {
                         "type": "photo", 
-                        "media": f"attach://{file_key}"
+                        "media": f"attach://{file_key}",
+                        "parse_mode": "HTML"
                     }
                     if caption:
                         media_item["caption"] = caption
-                        if "parse_mode" in caption:
-                            media_item["parse_mode"] = "Markdown" # Default applies, but we just set it
-                    
-                    # For Markdown specific parsing
-                    if "🚨" in caption:
-                        media_item["parse_mode"] = "Markdown"
                         
                     media_group.append(media_item)
                     index += 1
@@ -179,12 +185,12 @@ class TelegramAlertBot:
                 url = self._get_url("sendPhoto")
                 # Need to use the single object
                 file_key = list(files.keys())[0]
-                data = {"chat_id": self.chat_id, "caption": message, "parse_mode": "Markdown"}
+                data = {"chat_id": self.chat_id, "caption": message, "parse_mode": "HTML"}
                 single_file = {"photo": files[file_key]}
                 response = requests.post(url, data=data, files=single_file, timeout=30)
             else:
                 url = self._get_url("sendMessage")
-                data = {"chat_id": self.chat_id, "text": message, "parse_mode": "Markdown"}
+                data = {"chat_id": self.chat_id, "text": message, "parse_mode": "HTML"}
                 response = requests.post(url, json=data, timeout=30)
             
             # Ensure files are closed
@@ -210,7 +216,7 @@ class TelegramAlertBot:
         
         try:
             message = """
-✅ **CivicCam Bot Test**
+✅ <b>CivicCam Bot Test</b>
 
 Your Telegram bot is configured correctly!
 You will receive littering alerts here.
@@ -219,7 +225,7 @@ You will receive littering alerts here.
 📡 Connection: OK
 """         
             url = self._get_url("sendMessage")
-            data = {"chat_id": self.chat_id, "text": message, "parse_mode": "Markdown"}
+            data = {"chat_id": self.chat_id, "text": message, "parse_mode": "HTML"}
             response = requests.post(url, json=data, timeout=30)
             
             if response.status_code == 200:

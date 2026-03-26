@@ -189,6 +189,7 @@ def load_telegram_bot():
             return bot
         return None
     except Exception as e:
+        st.sidebar.error(f"Telegram Bot error: {e}")
         return None
 
 
