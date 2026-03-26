@@ -435,7 +435,7 @@ def render_live_feed():
             uploaded_file = st.file_uploader("Drop evidence here", type=["jpg", "png"], label_visibility="collapsed")
             if uploaded_file:
                 # Lazy load models
-                detector, ocr, face_detector, _, _ = initialize_ai()
+                detector, ocr, face_detector, event_detector, handler = initialize_ai()
                 
                 file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
                 image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
