@@ -17,15 +17,22 @@ __pycache__/
 *.so
 .Python
 
-# Datasets (too large for git)
-datasets/
+# Datasets (too large for git) - keep structure files
+datasets/*/train/
+datasets/*/valid/
+datasets/*/test/
+!datasets/**/data.yaml
 
 # Training runs and outputs
 runs/
 
-# Model weights (will be downloaded or trained)
-*.pt
+# Model weights (downloaded during runtime)
+yolov8*.pt
 !models/civiccam_best.pt
+
+# Streamlit secrets (contains API keys)
+.streamlit/secrets.toml
+!.streamlit/secrets.toml.example
 
 # Incidents (local data)
 incidents/

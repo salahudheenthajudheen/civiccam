@@ -1,161 +1,277 @@
-# CivicCam - AI-Powered Littering Detection System
+# 🚔 CivicCam - AI Littering Detection System
 
-An intelligent surveillance system that detects littering incidents in real-time using computer vision and machine learning. Built with YOLOv8 for object detection, EasyOCR for license plate recognition, and Streamlit for the web interface.
+An AI-powered system that detects littering incidents by identifying **waste**, **license plates**, and **suspect faces** simultaneously, then sends alerts via Telegram.
 
-![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
-![YOLOv8](https://img.shields.io/badge/YOLOv8-ultralytics-green.svg)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-red.svg)
-![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+## 🎯 Features
 
-## Features
+- **Real-time Detection**: Detects waste, vehicles, and people using YOLOv8
+- **License Plate OCR**: Reads vehicle registration numbers
+- **Face Detection**: Captures suspect faces for identification
+- **Smart Alerts**: Only triggers when ALL THREE are detected together
+- **Telegram Integration**: Sends instant alerts with evidence images
+- **Web Dashboard**: Monitor incidents via Streamlit interface
+- **Supabase Backend**: Cloud database & image storage
 
-- **Object Detection** - Detects waste, vehicles, license plates, and people using YOLOv8
-- **Face Detection** - Identifies suspects in littering incidents
-- **License Plate OCR** - Extracts plate text using EasyOCR
-- **Telegram Alerts** - Automatic notifications when littering is detected
-- **Multiple Input Sources** - Webcam, uploaded images/videos, RTSP streams
-- **Dashboard** - Analytics and incident management interface
-- **Incident Logging** - SQLite database for storing evidence
+---
 
-## Installation
+## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.8 or higher
-- CUDA-capable GPU (recommended for real-time detection)
-- Git
 
-### Step 1: Clone the Repository
+- Python 3.10+ 
+- macOS / Linux / Windows
+- Webcam (for live detection)
+
+### 1. Clone & Setup
+
 ```bash
-git clone https://github.com/salahudheenthajudheen/civiccam.git
-cd civiccam
-```
+# Clone the repository
+git clone <your-repo-url>
+cd civiccam-model
 
-### Step 2: Create Virtual Environment
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-**Windows:**
-```powershell
-python -m venv civiccam_env
-.\civiccam_env\Scripts\activate
-```
-
-**Linux/Mac:**
-```bash
-python -m venv civiccam_env
-source civiccam_env/bin/activate
-```
-
-### Step 3: Install Dependencies
-```bash
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### Step 4: Configure Environment Variables
+### 2. Configure Environment
+
+Copy the example env file and fill in your credentials:
+
 ```bash
-# Copy the example file
 cp .env.example .env
-
-# Edit .env with your Telegram credentials
 ```
 
-### Step 5: Download/Train Model
-Place your trained model in `models/civiccam_best.pt` or train one using:
+Edit `.env` with your credentials:
+
 ```bash
-python scripts/train_model.py
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_CHAT_ID=your_chat_id_here
+SUPABASE_URL=your_supabase_url_here
+SUPABASE_KEY=your_supabase_anon_key_here
 ```
 
-## Usage
+**Telegram Setup:**
+1. Open Telegram, search for `@BotFather`
+2. Send `/newbot` and follow instructions to get your token
+3. Add the bot to a group/channel
+4. Get chat ID from `@userinfobot` or `@getidsbot`
 
-### Web Dashboard
+**Supabase Setup:**
+1. Create a project at [supabase.com](https://supabase.com)
+2. Run `scripts/schema.sql` in the SQL Editor
+3. Copy the URL and anon key from Project Settings > API
+
+### 3. Run the Application
+
 ```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run the web dashboard
 streamlit run app.py
 ```
+
 Open http://localhost:8501 in your browser.
 
-### Command Line Detection
-```bash
-# Detect in image
-python detect.py --source image.jpg --save
+---
 
-# Detect in video
-python detect.py --source video.mp4 --save
+## ☁️ Deployment (Streamlit Cloud + Supabase)
 
-# Webcam with face detection
-python detect.py --source 0 --show --face
+### Deploy to Streamlit Cloud
 
-# Full detection (OCR + events + face)
-python detect.py --source image.jpg --ocr --events --face --save
+1. **Push to GitHub** — Make sure your repo is on GitHub
+2. **Go to** [share.streamlit.io](https://share.streamlit.io)
+3. **Connect your repo** — Select the repository and `app.py` as the main file
+4. **Add Secrets** — In the Streamlit Cloud dashboard, go to **Settings > Secrets** and add:
+   ```toml
+   SUPABASE_URL = "https://your-project.supabase.co"
+   SUPABASE_KEY = "your-anon-key"
+   TELEGRAM_BOT_TOKEN = "your-bot-token"
+   TELEGRAM_CHAT_ID = "your-chat-id"
+   ```
+5. **Deploy** — Click Deploy and wait for the app to build
+
+### Supabase Backend Setup
+
+Run the SQL schema in your Supabase SQL Editor:
+
+```sql
+-- See scripts/schema.sql for the full schema
+-- Creates: incidents table, storage bucket, RLS policies, indexes
 ```
 
-## Telegram Setup
+### Important Files for Deployment
 
-1. Create a bot via [@BotFather](https://t.me/BotFather) on Telegram
-2. Get your Chat ID from [@userinfobot](https://t.me/userinfobot)
-3. Add credentials to your `.env` file:
-```
-TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
-```
+| File | Purpose |
+|------|---------|
+| `requirements.txt` | Python dependencies |
+| `packages.txt` | System-level apt packages (for OpenCV) |
+| `.streamlit/secrets.toml` | Local secrets (NOT committed to git) |
+| `scripts/schema.sql` | Supabase database schema |
 
-## Project Structure
+---
+
+## 📁 Project Structure
 
 ```
-civiccam/
-├── app.py                 # Streamlit web dashboard
+civiccam-model/
+├── app.py                 # Main Streamlit web app
 ├── detect.py              # CLI detection script
 ├── config.py              # Configuration settings
 ├── requirements.txt       # Python dependencies
-├── .env.example           # Environment variables template
+├── packages.txt           # System packages for Streamlit Cloud
+├── .env.example           # Environment variable template
+├── .streamlit/
+│   ├── secrets.toml       # Local secrets (gitignored)
+│   └── secrets.toml.example  # Secrets template
 ├── models/
-│   └── civiccam_best.pt   # Trained YOLO model
-└── scripts/
-    ├── detector.py        # Detection engine
-    ├── ocr_engine.py      # License plate OCR
-    ├── face_detector.py   # Face detection
-    ├── event_detector.py  # Littering event logic
-    ├── evidence_handler.py # Incident storage
-    └── telegram_bot.py    # Telegram notifications
+│   └── civiccam_best.pt   # Trained YOLOv8 model
+├── scripts/
+│   ├── detector.py        # Object detection module
+│   ├── ocr_engine.py      # License plate OCR
+│   ├── face_detector.py   # Face detection
+│   ├── telegram_bot.py    # Telegram alerts
+│   ├── event_detector.py  # Littering event logic
+│   ├── evidence_handler.py # Supabase + SQLite backend
+│   └── schema.sql         # Supabase database schema
+└── datasets/              # Training datasets
 ```
 
-## Configuration
+---
+
+## 🎮 Usage
+
+### Web Dashboard (Recommended)
+
+```bash
+streamlit run app.py
+```
+
+### Command Line
+
+```bash
+# Detect from webcam
+python detect.py --source 0 --show
+
+# Detect from image
+python detect.py --source path/to/image.jpg --show
+
+# Detect from video
+python detect.py --source path/to/video.mp4 --save
+
+# Enable all features
+python detect.py --source 0 --ocr --face --events --show
+```
+
+---
+
+## 🧠 How Detection Works
+
+The system requires **waste + suspect** to trigger an alert:
+
+```
+┌─────────────┐   ┌─────────────┐   ┌─────────────┐
+│    Waste    │ + │License Plate│ + │    Face     │ = 🚨 ALERT
+│  Detected   │   │  Detected   │   │  Detected   │
+└─────────────┘   └─────────────┘   └─────────────┘
+```
+
+When triggered, the system:
+1. Captures the full scene
+2. Crops the suspect's face
+3. Crops the license plate
+4. Reads the plate number with OCR
+5. Saves evidence to Supabase database
+6. Uploads images to Supabase Storage
+7. Sends Telegram alert with all images
+
+---
+
+## 📊 Model Classes
+
+| ID | Class | Description |
+|----|-------|-------------|
+| 0 | `license_plate` | Vehicle license plates |
+| 1 | `object` | Generic objects |
+| 2 | `public` | People/pedestrians |
+| 3 | `waste` | Litter/garbage |
+| - | `face` | Detected by separate face model |
+
+---
+
+## 🔧 Configuration
 
 Edit `config.py` to customize:
-- `DETECTION_CONF` - Detection confidence threshold (default: 0.15)
-- `LITTERING_PROXIMITY_THRESHOLD` - Distance for event detection
 
-Environment variables (in `.env`):
-- `TELEGRAM_BOT_TOKEN` - Your Telegram bot token
-- `TELEGRAM_CHAT_ID` - Your Telegram chat/group ID
+```python
+DETECTION_CONF = 0.35      # Confidence threshold
+FACE_CONF_THRESHOLD = 0.5  # Face detection threshold
+```
 
-## Model Classes
+---
 
-| Class | Description |
-|-------|-------------|
-| `license_plate` | Vehicle number plates |
-| `waste` | Litter/garbage |
-| `object` | Items being thrown |
-| `public` | Public areas |
+## 📱 Telegram Alert Format
 
-## Performance
+When a littering incident is detected:
 
-- mAP50: 55.1%
-- Inference: ~60ms per frame (GPU)
-- Real-time capable on modern hardware
+```
+🚨 LITTERING DETECTED
 
-## Contributing
+🚗 Plate: KL01AB1234
+👤 Suspect: Face captured
+🗑️ Evidence: Waste detected
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Open a Pull Request
+📊 Confidence Scores:
+• License Plate: 94%
+• Face Detection: 87%
+• Waste Detection: 82%
 
-## License
+🕐 Time: 27/01/2026 • 03:10:45
+🆔 Case: #42
+```
 
-This project is licensed under the MIT License.
+Plus 4 evidence images: scene, face, plate, waste.
 
-## Acknowledgments
+---
 
-- [Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics)
-- [EasyOCR](https://github.com/JaidedAI/EasyOCR)
-- [Streamlit](https://streamlit.io/)
-- [python-telegram-bot](https://python-telegram-bot.org/)
+## 🏋️ Training Your Own Model
+
+1. Prepare dataset in YOLO format
+2. Upload `CivicCam_Training.ipynb` to Google Colab
+3. Follow the notebook instructions
+4. Replace `models/civiccam_best.pt` with your trained model
+
+---
+
+## 🛠️ Tech Stack
+
+- **YOLOv8** — Object detection
+- **EasyOCR** — License plate reading
+- **Streamlit** — Web interface
+- **Supabase** — Cloud database & image storage
+- **Telegram Bot API** — Real-time alerts
+- **OpenCV** — Image processing
+
+---
+
+## 📊 Model Performance
+
+- mAP50: 92.3%
+- Precision: 95.8%
+- Recall: 87.7%
+
+---
+
+## 📝 License
+
+MIT License - Feel free to use and modify for your projects.
+
+---
+
+## 🤝 Contributing
+
+Pull requests welcome! Please open an issue first to discuss changes.
