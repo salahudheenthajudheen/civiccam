@@ -55,6 +55,12 @@ class TelegramAlertBot:
         """Get the full URL for a Telegram API endpoint"""
         return f"https://api.telegram.org/bot{self.token}/{endpoint}"
 
+    def _get_chat_ids(self) -> list:
+        """Parse chat_id string into a list of individual chat IDs"""
+        if not self.chat_id:
+            return []
+        return [cid.strip() for cid in str(self.chat_id).split(',') if cid.strip()]
+
     def send_alert(self, 
                    license_plate: str,
                    confidence: float,
@@ -88,24 +94,35 @@ class TelegramAlertBot:
 ⚠️ Please review and take appropriate action.
 """
             url = self._get_url("sendMessage")
+            has_image = image_path and Path(image_path).exists()
             
-            # Send with image if available
-            if image_path and Path(image_path).exists():
-                url = self._get_url("sendPhoto")
-                with open(image_path, 'rb') as photo:
-                    data = {"chat_id": self.chat_id, "caption": message, "parse_mode": "HTML"}
-                    files = {"photo": photo}
-                    response = requests.post(url, data=data, files=files, timeout=30)
-            else:
-                data = {"chat_id": self.chat_id, "text": message, "parse_mode": "HTML"}
-                response = requests.post(url, json=data, timeout=30)
+            chat_ids = self._get_chat_ids()
+            success_count = 0
             
-            if response.status_code != 200:
-                print(f"[TelegramBot] API Error: {response.text}")
-                return False
+            for cid in chat_ids:
+                try:
+                    # Send with image if available
+                    if has_image:
+                        url_photo = self._get_url("sendPhoto")
+                        with open(image_path, 'rb') as photo:
+                            data = {"chat_id": cid, "caption": message, "parse_mode": "HTML"}
+                            files = {"photo": photo}
+                            response = requests.post(url_photo, data=data, files=files, timeout=30)
+                    else:
+                        data = {"chat_id": cid, "text": message, "parse_mode": "HTML"}
+                        response = requests.post(url, json=data, timeout=30)
+                    
+                    if response.status_code == 200:
+                        success_count += 1
+                    else:
+                        print(f"[TelegramBot] API Error for chat {cid}: {response.text}")
+                except Exception as e:
+                    print(f"[TelegramBot] Error sending to chat {cid}: {e}")
                 
-            print(f"[TelegramBot] Alert sent for plate: {license_plate}")
-            return True
+            if success_count > 0:
+                print(f"[TelegramBot] Alert sent to {success_count} chats for plate: {license_plate}")
+                return True
+            return False
             
         except Exception as e:
             print(f"[TelegramBot] Error sending alert: {e}")
@@ -147,65 +164,76 @@ class TelegramAlertBot:
 
 ⚠️ <b>Action Required</b> - Review evidence below."""
             
-            # Form media group
-            media_group = []
-            files = {}
-            index = 0
-            
-            def add_media(image_path, caption):
-                nonlocal index
-                if image_path and Path(image_path).exists():
-                    file_key = f"photo_{index}"
-                    files[file_key] = open(image_path, 'rb')
+            chat_ids = self._get_chat_ids()
+            success_count = 0
+
+            for cid in chat_ids:
+                try:
+                    # Form media group
+                    media_group = []
+                    files = {}
+                    index = 0
                     
-                    media_item = {
-                        "type": "photo", 
-                        "media": f"attach://{file_key}",
-                        "parse_mode": "HTML"
-                    }
-                    if caption:
-                        media_item["caption"] = caption
+                    def add_media(img_path, caption):
+                        nonlocal index
+                        if img_path and Path(img_path).exists():
+                            file_key = f"photo_{index}"
+                            files[file_key] = open(img_path, 'rb')
+                            
+                            media_item = {
+                                "type": "photo", 
+                                "media": f"attach://{file_key}",
+                                "parse_mode": "HTML"
+                            }
+                            if caption:
+                                media_item["caption"] = caption
+                                
+                            media_group.append(media_item)
+                            index += 1
+                    
+                    # Scene image (main photo with caption)
+                    add_media(scene_image, message)
+                    
+                    # Face, plate, waste images
+                    add_media(face_image, "👤 Suspect Face")
+                    add_media(plate_image, f"🚗 Plate: {license_plate}")
+                    add_media(waste_image, "🗑️ Waste Evidence")
+                    
+                    if len(media_group) > 1:
+                        url = self._get_url("sendMediaGroup")
+                        data = {"chat_id": cid, "media": json.dumps(media_group)}
+                        response = requests.post(url, data=data, files=files, timeout=30)
+                    elif len(media_group) == 1:
+                        url = self._get_url("sendPhoto")
+                        # Need to use the single object
+                        file_key = list(files.keys())[0]
+                        data = {"chat_id": cid, "caption": message, "parse_mode": "HTML"}
+                        single_file = {"photo": files[file_key]}
+                        response = requests.post(url, data=data, files=single_file, timeout=30)
+                    else:
+                        url = self._get_url("sendMessage")
+                        data = {"chat_id": cid, "text": message, "parse_mode": "HTML"}
+                        response = requests.post(url, json=data, timeout=30)
+                    
+                    # Ensure files are closed
+                    for f in files.values():
+                        f.close()
                         
-                    media_group.append(media_item)
-                    index += 1
-            
-            # Scene image (main photo with caption)
-            add_media(scene_image, message)
-            
-            # Face, plate, waste images
-            add_media(face_image, "👤 Suspect Face")
-            add_media(plate_image, f"🚗 Plate: {license_plate}")
-            add_media(waste_image, "🗑️ Waste Evidence")
-            
-            if len(media_group) > 1:
-                url = self._get_url("sendMediaGroup")
-                data = {"chat_id": self.chat_id, "media": json.dumps(media_group)}
-                response = requests.post(url, data=data, files=files, timeout=30)
-            elif len(media_group) == 1:
-                url = self._get_url("sendPhoto")
-                # Need to use the single object
-                file_key = list(files.keys())[0]
-                data = {"chat_id": self.chat_id, "caption": message, "parse_mode": "HTML"}
-                single_file = {"photo": files[file_key]}
-                response = requests.post(url, data=data, files=single_file, timeout=30)
-            else:
-                url = self._get_url("sendMessage")
-                data = {"chat_id": self.chat_id, "text": message, "parse_mode": "HTML"}
-                response = requests.post(url, json=data, timeout=30)
-            
-            # Ensure files are closed
-            for f in files.values():
-                f.close()
+                    if response.status_code == 200:
+                        success_count += 1
+                    else:
+                        print(f"[TelegramBot] API Error sending to {cid}: {response.text}")
                 
-            if response.status_code != 200:
-                print(f"[TelegramBot] API Error sending littering alert: {response.text}")
-                return False
-                
-            print(f"[TelegramBot] Littering alert sent! Plate: {license_plate}")
-            return True
+                except Exception as inner_e:
+                    print(f"[TelegramBot] Error sending to {cid}: {inner_e}")
+                    
+            if success_count > 0:
+                print(f"[TelegramBot] Littering alert sent to {success_count} chats! Plate: {license_plate}")
+                return True
+            return False
             
         except Exception as e:
-            print(f"[TelegramBot] Error sending littering alert: {e}")
+            print(f"[TelegramBot] Error sending littering alert setup: {e}")
             return False
 
     def send_test_message(self) -> bool:
@@ -225,15 +253,23 @@ You will receive littering alerts here.
 📡 Connection: OK
 """         
             url = self._get_url("sendMessage")
-            data = {"chat_id": self.chat_id, "text": message, "parse_mode": "HTML"}
-            response = requests.post(url, json=data, timeout=30)
+            chat_ids = self._get_chat_ids()
+            success_count = 0
             
-            if response.status_code == 200:
-                print("[TelegramBot] Test message sent successfully!")
+            for cid in chat_ids:
+                data = {"chat_id": cid, "text": message, "parse_mode": "HTML"}
+                response = requests.post(url, json=data, timeout=30)
+                
+                if response.status_code == 200:
+                    success_count += 1
+                else:
+                    print(f"[TelegramBot] Test failed API error for {cid}: {response.text}")
+            
+            if success_count > 0:
+                print(f"[TelegramBot] Test message sent successfully to {success_count} chats!")
                 return True
-            else:
-                print(f"[TelegramBot] Test failed API error: {response.text}")
-                return False
+            return False
+            
         except Exception as e:
             print(f"[TelegramBot] Test failed exception: {e}")
             return False
